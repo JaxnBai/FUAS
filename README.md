@@ -97,7 +97,8 @@ To get a local copy up and running follow these simple example steps.
    {
    "qwen3_key": "your_api_key_here"
    }
-   ```   
+   ```
+5.Place your target NIfTI file in the dataset directory
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -106,9 +107,10 @@ To get a local copy up and running follow these simple example steps.
 <!-- USAGE EXAMPLES -->
 ## Usage
 
-Use this space to show useful examples of how a project can be used. Additional screenshots, code examples and demos work well in this space. You may also link to more resources.
-
-_For more examples, please refer to the [Documentation](https://example.com)_
+   Running the command in terminal
+   ```sh
+   python code/main.py  -niigz_path ./dataset  -prompt autonomy -seg_model ./seg_model/autonomy_v1.pth -dose_model ./dose_model/dose_model_BayesSearchCV.joblib  
+   ```
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
