@@ -1,4 +1,4 @@
-name: medsam2
+name: FUAS
 channels:
   - conda-forge
   - defaults
