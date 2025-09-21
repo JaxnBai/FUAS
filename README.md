@@ -86,13 +86,18 @@ To get a local copy up and running follow these simple example steps.
    conda env create -f environment.yml
    ```
    ```sh
-   conda activate medsam2
+   conda activate FUAS
    ```   
 3. Download SAM2 checkpoint from checkpoints folder
    ```sh
    bash checkpoints/download_ckpts.sh
    ```
-4. Import your API in config.json 
+4. Import your API in config.json
+   ```sh
+   {
+   "qwen3_key": "your_api_key_here"
+   }
+   ```   
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
