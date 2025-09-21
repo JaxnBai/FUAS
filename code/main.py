@@ -56,41 +56,66 @@ class ArgsConfig:
             imageio.imwrite(temp_image_path, data)
 
             shutil.move(temp_image_path, image_dir)
-                
-                
 
     def nii_to_image(self):
-        niigz_path=self.args.niigz_path
-        ids=os.listdir(niigz_path)
-        loop=tqdm(ids,desc='Converting All')
+        niigz_path = self.args.niigz_path
+        ids = os.listdir(niigz_path)
+        loop = tqdm(ids, desc='Converting All')
+    
         for id in loop:
-            loop.set_postfix({ "ID": id}, refresh=True)
+            loop.set_postfix({"ID": id}, refresh=True)
             sub_root = os.path.join(niigz_path, id)
+    
+            if os.path.isfile(sub_root) and id.endswith('.nii.gz'):
+                try:
+                    serial = id.split('_')[0] if '_' in id else '000'
+                    new_filename = f"root_{serial}"
+                    
+                    self.niito2D(sub_root, self.args.image_path, new_filename)
+    
+                    mri_txt_path = os.path.join(niigz_path, 'mri.txt')
+                    os.makedirs(self.args.mri_input, exist_ok=True)
+                    target_dir = os.path.join(self.args.mri_input, new_filename)
+                    if not os.path.exists(target_dir):
+                        os.makedirs(target_dir)
+                        if os.path.exists(mri_txt_path):
+                            shutil.copy(mri_txt_path,
+                                        os.path.join(target_dir, 'mri.txt'))
+                except Exception as e:
+                    raise RuntimeError(f"{sub_root} error information: {e}")
+                continue  
+    
             for root, dirs, files in os.walk(sub_root):
                 for file in files:
-                    if file.endswith('.nii.gz'):
-                        
-                        full_path = os.path.join(root, file)                      
-                        
-                        try:
-                            parts = full_path.split('/')
-                            modality = parts[-5]              # e.g., AP
-                            uid = parts[-4]                   # e.g., 330E96BB-...
-                            t1_folder = parts[-2]             # e.g., t1
-                            original_filename = file          # e.g., 701_t1_quick3d_...
-                            serial = original_filename.split('_')[0]  # 701
-                            # 构造目标文件名
-                            new_filename = f"{id[:6]}_{modality}_{t1_folder}_{serial}"
-                            if modality=='BP' and t1_folder=='t2':
-                                self.niito2D(full_path, self.args.image_path, new_filename)
-
-                                os.makedirs(self.args.mri_input, exist_ok=True)
-                                if not os.path.exists(os.path.join(self.args.mri_input,new_filename)):
-                                    os.makedirs(os.path.join(self.args.mri_input,new_filename))
-                                    shutil.copy(os.path.join(niigz_path,id,'mri.txt'),os.path.join(self.args.mri_input,new_filename,'mri.txt'))
-
-                        except Exception as e:
-                            raise RuntimeError(f" {full_path}，错误信息: {e}")      
+                    if not file.endswith('.nii.gz'):
+                        continue
+    
+                    full_path = os.path.join(root, file)
+                    try:
+                        rel_path = os.path.relpath(os.path.dirname(full_path), niigz_path)
+                        rel_path = rel_path.replace(os.sep, '-')
+                        original_filename = file
+                        serial = original_filename.split('_')[0] if '_' in original_filename else '000'
+                        new_filename = f"{id[:6]}__{rel_path}__{serial}"
+                        parts = full_path.split('/')
+                        modality = parts[-5] if len(parts) >= 5 else ''
+                        t1_folder = parts[-2] if len(parts) >= 2 else ''
+                        if modality == 'BP' and t1_folder == 't2':
+                            self.niito2D(full_path, self.args.image_path, new_filename)
+    
+                            os.makedirs(self.args.mri_input, exist_ok=True)
+                            target_dir = os.path.join(self.args.mri_input, new_filename)
+                            if not os.path.exists(target_dir):
+                                os.makedirs(target_dir)
+                                mri_src = os.path.join(niigz_path, id, 'mri.txt')
+                                if os.path.exists(mri_src):
+                                    shutil.copy(mri_src, os.path.join(target_dir, 'mri.txt'))
+                        else:）
+                            self.niito2D(full_path, self.args.image_path, new_filename)
+    
+                    except Exception as e:
+                        raise RuntimeError(f"{full_path} error information: {e}")
+        
 
     def image_to_nii(self):
         args = self.args
@@ -99,24 +124,22 @@ class ArgsConfig:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
 
-        # 遍历每个子文件夹
         for folder_name in tqdm(sorted(os.listdir(root_dir)),desc="Converting image to nii file"):
             folder_path = os.path.join(root_dir, folder_name)
             if not os.path.isdir(folder_path):
                 continue
 
-            # 读取并排序所有png文件
             png_files = sorted([f for f in os.listdir(folder_path) if f.endswith('.png')],
                             key=lambda x: int(x.replace('.png', '')))
             
             slices = []
             for png in png_files:
-                img = Image.open(os.path.join(folder_path, png)).convert('L')  # 转灰度图
-                img = img.resize((1024, 1024))  # 可选，若图像大小不一致
+                img = Image.open(os.path.join(folder_path, png)).convert('L')  
+                img = img.resize((1024, 1024))  
                 slices.append(np.array(img))
             
-            volume = np.stack(slices, axis=-1)  # 形成3D体数据 (H, W, D)
-            affine = np.eye(4)  # 默认空间坐标变换矩阵
+            volume = np.stack(slices, axis=-1)  
+            affine = np.eye(4)  
 
             nii_img = nib.Nifti1Image(volume, affine)
             nib.save(nii_img, os.path.join(output_dir, f'{folder_name}.nii.gz'))
@@ -128,13 +151,13 @@ class ArgsConfig:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)    
 
-        # 遍历每个子文件夹
+        
         for folder_name in tqdm(sorted(os.listdir(input_root)),desc="Converting mask to nii file"):
             folder_path = os.path.join(input_root, folder_name)
             if not os.path.isdir(folder_path):
                 continue
 
-            # 获取所有 .npy 文件并按数字顺序排序
+            
             npy_files = sorted(
                 [f for f in os.listdir(folder_path) if f.endswith('.npy')],
                 key=lambda x: int(x.replace('.npy', ''))
@@ -145,11 +168,11 @@ class ArgsConfig:
                 slice_array = np.load(os.path.join(folder_path, file))
                 slices.append(slice_array)
 
-            # 将多个切片堆叠成一个3D体
+            
             volume = np.stack(slices, axis=-1)  # Shape: (H, W, D)
-            affine = np.eye(4)  # 默认仿射矩阵
+            affine = np.eye(4)  
 
-            # 保存为 nii.gz
+            
             nii_img = nib.Nifti1Image(volume, affine)
             nib.save(nii_img, os.path.join(output_dir, f'{folder_name}.nii.gz'))
 
@@ -169,7 +192,7 @@ class ArgsConfig:
         for id in loop:
             input_folder = os.path.join(input_folders,id)
             if not os.path.isdir(input_folder):
-                print(f"文件夹 {input_folder} 不存在，跳过。")
+                print(f"directory {input_folder} doesn't exist，keep on。")
                 continue
             pred_mask=os.path.join(save_to,id)
             if not os.path.exists(pred_mask):
@@ -180,7 +203,7 @@ class ArgsConfig:
                     img_path = os.path.join(input_folder, file)
                     img = Image.open(img_path)
 
-                    # Resize 并保存
+                    # Resize and save
                     img_resized = img.resize(output_size, Image.BILINEAR)
                     img_resized.save(os.path.join(pred_mask, file))
         print(f"All images have been resized to {output_size} and saved to {save_to}")
@@ -238,22 +261,22 @@ class Visualize:
         npy_data = np.load(npy_path)
         npy_img = Image.fromarray(npy_data)
 
-        # 调整 npy 图像的尺寸以匹配 png 图像
+        
         if png_img.size != npy_img.size:
             npy_img = npy_img.resize(png_img.size)
 
-        # 将灰度数据转换为彩色掩码
+        
         color_mask = self.create_colorful_mask(np.array(npy_img))
         color_mask = color_mask.convert("RGBA")
-        # 设置掩码的透明度
+        
         r, g, b, a = color_mask.split()
         a = a.point(lambda p: p * alpha)
         color_mask = Image.merge('RGBA', (r, g, b, a))
 
-        # 将彩色掩码叠加到 png 图像上
+        
         combined = Image.alpha_composite(png_img, color_mask)
         combined.save(pred_mask)
-        # print(f"已保存结果到 {pred_mask}")
+        # print(f"It has saved to {pred_mask}")
 
     def process_folders(self):
         npy_folder = self.npy_folder
@@ -265,10 +288,10 @@ class Visualize:
             os.makedirs(output_folder)
 
         if not os.path.exists(npy_folder):
-            print(f"错误:snpy 文件夹 {npy_folder} 不存在。")
+            print(f"Error:snpy directory {npy_folder} doesn't exist。")
             return
 
-        # 获取 mask 文件夹下的所有小文件夹
+        
         sub_npy_folders = [f for f in os.listdir(png_folder) if os.path.isdir(os.path.join(png_folder, f))]
         # breakpoint()
         for sub_npy_folder in tqdm(sub_npy_folders, desc="Visualizing"):
@@ -276,16 +299,16 @@ class Visualize:
             sub_npy_folder_path = os.path.join(npy_folder, sub_npy_folder)
             sub_png_folder_path = os.path.join(png_folder, sub_npy_folder)
             if not os.path.exists(sub_png_folder_path):
-                print(f"错误：对应的 png 文件夹 {sub_png_folder_path} 不存在。")
+                print(f"Error：related png directory {sub_png_folder_path} doesn't exist。")
                 continue
             sub_output_folder = os.path.join(output_folder, sub_npy_folder) ################################################################################
 
-            # 为每个小文件夹创建对应的输出子文件夹
+            
             if not os.path.exists(sub_output_folder):
                 os.makedirs(sub_output_folder)
 
             npy_files = [f for f in os.listdir(sub_npy_folder_path) if f.endswith('.npy')]
-            # 内层进度条，显示小文件夹内文件的处理进度
+            
             for npy_filename in tqdm(npy_files, desc=f"Processing {sub_npy_folder} ", leave=False):
                 npy_path = os.path.join(sub_npy_folder_path, npy_filename)
                 base_name = os.path.splitext(npy_filename)[0]
