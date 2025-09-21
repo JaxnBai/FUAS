@@ -76,27 +76,23 @@ To get a local copy up and running follow these simple example steps.
 ### Prerequisites
 
 1. Clone the repo
-  ```sh
+   ```sh
    git clone https://github.com/JaxnBai/FUAS.git
+   cd FUAS
    ```
 
-2. Clone the repo
+2. Install the environment:
    ```sh
-   git clone https://github.com/github_username/repo_name.git
+   conda env create -f environment.yml
    ```
-3. Install NPM packages
    ```sh
-   npm install
-   ```
-4. Enter your API in `config.js`
-   ```js
-   const API_KEY = 'ENTER YOUR API';
-   ```
-5. Change git remote url to avoid accidental pushes to base project
+   conda activate medsam2
+   ```   
+3. Download SAM2 checkpoint from checkpoints folder
    ```sh
-   git remote set-url origin github_username/repo_name
-   git remote -v # confirm the changes
+   bash checkpoints/download_ckpts.sh
    ```
+4. Import your API in config.json 
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
