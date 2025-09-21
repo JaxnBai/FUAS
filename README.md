@@ -111,6 +111,8 @@ To get a local copy up and running follow these simple example steps.
    ```sh
    python code/main.py  -niigz_path ./dataset  -prompt autonomy -seg_model ./seg_model/autonomy_v1.pth -dose_model ./dose_model/dose_model_BayesSearchCV.joblib  
    ```
+   Output is in the data/final directory
+  
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
