@@ -1,7 +1,7 @@
 
 # FUAS-Agents
 
-**Autonomous Multi-Modal LLM Agents for Focused Ultrasound Ablation Surgery (FUAS) Treatment Planning**
+## **Autonomous Multi-Modal LLM Agents for Focused Ultrasound Ablation Surgery (FUAS) Treatment Planning**
 
 This repository provides the official implementation of **FUAS-Agents**, a multi-agent system for **segmentation**, **treatment strategy generation**, and **dose prediction** in Focused Ultrasound Ablation Surgery (FUAS).  
 The framework leverages **multi-modal large language models (MM-LLMs)** to coordinate medical AI tools, achieving personalized, end-to-end treatment planning.
