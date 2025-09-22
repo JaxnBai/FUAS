@@ -44,7 +44,7 @@ Clone the repository and create the environment:
 git clone https://github.com/JaxnBai/FUAS.git
 cd FUAS
 conda env create -f environment.yml
-conda activate fuas
+conda activate FUAS
 ````
 Download SAM2 checkpoint from checkpoints folder
 ```
