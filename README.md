@@ -11,7 +11,7 @@ The framework leverages **multi-modal large language models (MM-LLMs)** to coord
 ## Overview
 
 <p align="center">
-  <img src="docs/main_figure.png" width="600">
+  <img src="pipeline.png" width="600">
 </p>
 
 **Figure 1. System Overview** – The Planner Agent coordinates three core agents:
@@ -110,31 +110,17 @@ If you use this code or dataset in your research, please cite:
 ```bibtex
 @inproceedings{FUASAgents2025,
   title={Autonomous Multi-Modal LLM Agents for Treatment Planning in Focused Ultrasound Ablation Surgery},
-  booktitle={NeurIPS},
-  year={2025}
 }
 ```
-
----
-
-## License
-
-This project is released under the MIT License (see [LICENSE](LICENSE)).
 
 ---
 
 ## Acknowledgements
 
 This implementation is based on the paper
-*Autonomous Multi-Modal LLM Agents for Treatment Planning in Focused Ultrasound Ablation Surgery (NeurIPS 2025)*.
+*Autonomous Multi-Modal LLM Agents for Treatment Planning in Focused Ultrasound Ablation Surgery *.
 We thank the clinical collaborators and FUAS experts for their contributions and evaluation.
 
 ---
 
-### Notes
 
-* Replace `docs/main_figure.png` with the actual path to your system diagram.
-* Update the citation and GitHub URL once the paper and repository are public.
-
-```
-```
