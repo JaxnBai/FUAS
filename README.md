@@ -74,9 +74,10 @@ Ensure you have GPU support for PyTorch/MedSAM2 if running large-scale inference
    python code/main.py  -niigz_path ./dataset  -prompt autonomy -seg_model ./seg_model/autonomy_v1.pth -dose_model ./dose_model/dose_model_BayesSearchCV.joblib
    ```
 
-   Available prompt options: `auto`, `click`, `bbox`.
+   Available prompt options: `auto`, `click`, `bbox`.<br>
+   Output is in the data/final directory
 
-3. **Workflow Steps (automated inside `planner`)**
+4. **Workflow Steps (automated inside `planner`)**
 
    * Convert NII → 2D slices
    * Perform segmentation to generate masks
