@@ -110,7 +110,7 @@ class ArgsConfig:
                                 mri_src = os.path.join(niigz_path, id, 'mri.txt')
                                 if os.path.exists(mri_src):
                                     shutil.copy(mri_src, os.path.join(target_dir, 'mri.txt'))
-                        else:）
+                        else:
                             self.niito2D(full_path, self.args.image_path, new_filename)
     
                     except Exception as e:
