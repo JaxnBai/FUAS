@@ -36,6 +36,18 @@ The system integrates multimodal understanding, tool calling, and iterative opti
 
 ---
 
+### *there's a demo of our project:*
+<p align="center">
+  <img src="origin.png" alt="Original Image" width="300" />
+  <img src="predict.png" alt="Predicted Image" width="300" />
+</p>
+
+<p align="center">
+Comparison of the <strong>original image</strong> and the <strong>predicted result</strong>.
+</p>
+
+---
+
 ## Installation
 
 Clone the repository and create the environment:
