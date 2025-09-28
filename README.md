@@ -49,12 +49,18 @@ Comparison of the <strong>original image</strong> and the <strong>predicted resu
 ---
 
 ## Installation
+Install git-lfs tool to pull the model weights
+```
+sudo apt install git-lfs
+git lfs install
+```
 
 Clone the repository and create the environment:
 
 ```bash
 git clone https://github.com/JaxnBai/FUAS.git
 cd FUAS
+git lfs pull
 conda env create -f environment.yml
 conda activate FUAS
 ````
