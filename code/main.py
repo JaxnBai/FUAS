@@ -4,7 +4,7 @@ import imageio,json,requests
 from tqdm import tqdm
 import nibabel as nib
 import numpy as np
-import  argparse,json
+import argparse,json,time,requests
 import random
 import shutil
 from PIL import Image
@@ -56,23 +56,30 @@ class ArgsConfig:
             imageio.imwrite(temp_image_path, data)
 
             shutil.move(temp_image_path, image_dir)
-
+                
     def nii_to_image(self):
         niigz_path = self.args.niigz_path
         ids = os.listdir(niigz_path)
         loop = tqdm(ids, desc='Converting All')
-    
+
         for id in loop:
             loop.set_postfix({"ID": id}, refresh=True)
             sub_root = os.path.join(niigz_path, id)
-    
+
+            # ==============================
+            # 1️⃣ 处理直接放在 dataset 根目录的 .nii.gz 文件
+            # ==============================
             if os.path.isfile(sub_root) and id.endswith('.nii.gz'):
                 try:
+                    # 提取序号，如果没有 '_' 则用默认
                     serial = id.split('_')[0] if '_' in id else '000'
+                    # 通用命名：root_<serial>
                     new_filename = f"root_{serial}"
                     
+                    # 转2D
                     self.niito2D(sub_root, self.args.image_path, new_filename)
-    
+
+                    # 复制 mri.txt（如果存在）
                     mri_txt_path = os.path.join(niigz_path, 'mri.txt')
                     os.makedirs(self.args.mri_input, exist_ok=True)
                     target_dir = os.path.join(self.args.mri_input, new_filename)
@@ -82,27 +89,40 @@ class ArgsConfig:
                             shutil.copy(mri_txt_path,
                                         os.path.join(target_dir, 'mri.txt'))
                 except Exception as e:
-                    raise RuntimeError(f"{sub_root} error information: {e}")
-                continue  
-    
+                    raise RuntimeError(f"{sub_root} 错误信息: {e}")
+                continue  # 跳过后续目录遍历
+
+            # ==============================
+            # 2️⃣ 遍历多层目录结构的情况
+            # ==============================
             for root, dirs, files in os.walk(sub_root):
                 for file in files:
                     if not file.endswith('.nii.gz'):
                         continue
-    
+
                     full_path = os.path.join(root, file)
                     try:
+                        # ---------- 通用命名规则 ----------
+                        # 获取相对路径并用 '-' 替代分隔符
                         rel_path = os.path.relpath(os.path.dirname(full_path), niigz_path)
                         rel_path = rel_path.replace(os.sep, '-')
                         original_filename = file
                         serial = original_filename.split('_')[0] if '_' in original_filename else '000'
+                        # 新名字：id 前6位 + 相对路径 + 序号
                         new_filename = f"{id[:6]}__{rel_path}__{serial}"
+                        # ----------------------------------
+
+                        # ========== 原始特定逻辑 ==========
+                        # 如果是符合原始规则的 BP/t2，则执行特定处理
                         parts = full_path.split('/')
                         modality = parts[-5] if len(parts) >= 5 else ''
                         t1_folder = parts[-2] if len(parts) >= 2 else ''
+                        # ==================================
+
+                        # 如果原始结构符合要求，则使用原规则筛选
                         if modality == 'BP' and t1_folder == 't2':
                             self.niito2D(full_path, self.args.image_path, new_filename)
-    
+
                             os.makedirs(self.args.mri_input, exist_ok=True)
                             target_dir = os.path.join(self.args.mri_input, new_filename)
                             if not os.path.exists(target_dir):
@@ -111,11 +131,13 @@ class ArgsConfig:
                                 if os.path.exists(mri_src):
                                     shutil.copy(mri_src, os.path.join(target_dir, 'mri.txt'))
                         else:
-                            self.niito2D(full_path, self.args.image_path, new_filename)
-    
+                            # 如果未来数据不符合原规则，也可直接转换
+                            # （如果你不想自动处理非 BP/t2，可删除此分支）
+                            # self.niito2D(full_path, self.args.image_path, new_filename)
+                            pass
+
                     except Exception as e:
-                        raise RuntimeError(f"{full_path} error information: {e}")
-        
+                        raise RuntimeError(f"{full_path} 错误信息: {e}")
 
     def image_to_nii(self):
         args = self.args
@@ -124,22 +146,24 @@ class ArgsConfig:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
 
+        # 遍历每个子文件夹
         for folder_name in tqdm(sorted(os.listdir(root_dir)),desc="Converting image to nii file"):
             folder_path = os.path.join(root_dir, folder_name)
             if not os.path.isdir(folder_path):
                 continue
 
+            # 读取并排序所有png文件
             png_files = sorted([f for f in os.listdir(folder_path) if f.endswith('.png')],
                             key=lambda x: int(x.replace('.png', '')))
             
             slices = []
             for png in png_files:
-                img = Image.open(os.path.join(folder_path, png)).convert('L')  
-                img = img.resize((1024, 1024))  
+                img = Image.open(os.path.join(folder_path, png)).convert('L')  # 转灰度图
+                img = img.resize((1024, 1024))  # 可选，若图像大小不一致
                 slices.append(np.array(img))
             
-            volume = np.stack(slices, axis=-1)  
-            affine = np.eye(4)  
+            volume = np.stack(slices, axis=-1)  # 形成3D体数据 (H, W, D)
+            affine = np.eye(4)  # 默认空间坐标变换矩阵
 
             nii_img = nib.Nifti1Image(volume, affine)
             nib.save(nii_img, os.path.join(output_dir, f'{folder_name}.nii.gz'))
@@ -151,13 +175,13 @@ class ArgsConfig:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)    
 
-        
+        # 遍历每个子文件夹
         for folder_name in tqdm(sorted(os.listdir(input_root)),desc="Converting mask to nii file"):
             folder_path = os.path.join(input_root, folder_name)
             if not os.path.isdir(folder_path):
                 continue
 
-            
+            # 获取所有 .npy 文件并按数字顺序排序
             npy_files = sorted(
                 [f for f in os.listdir(folder_path) if f.endswith('.npy')],
                 key=lambda x: int(x.replace('.npy', ''))
@@ -168,11 +192,11 @@ class ArgsConfig:
                 slice_array = np.load(os.path.join(folder_path, file))
                 slices.append(slice_array)
 
-            
+            # 将多个切片堆叠成一个3D体
             volume = np.stack(slices, axis=-1)  # Shape: (H, W, D)
-            affine = np.eye(4)  
+            affine = np.eye(4)  # 默认仿射矩阵
 
-            
+            # 保存为 nii.gz
             nii_img = nib.Nifti1Image(volume, affine)
             nib.save(nii_img, os.path.join(output_dir, f'{folder_name}.nii.gz'))
 
@@ -192,7 +216,7 @@ class ArgsConfig:
         for id in loop:
             input_folder = os.path.join(input_folders,id)
             if not os.path.isdir(input_folder):
-                print(f"directory {input_folder} doesn't exist，keep on。")
+                print(f"文件夹 {input_folder} 不存在，跳过。")
                 continue
             pred_mask=os.path.join(save_to,id)
             if not os.path.exists(pred_mask):
@@ -203,7 +227,7 @@ class ArgsConfig:
                     img_path = os.path.join(input_folder, file)
                     img = Image.open(img_path)
 
-                    # Resize and save
+                    # Resize 并保存
                     img_resized = img.resize(output_size, Image.BILINEAR)
                     img_resized.save(os.path.join(pred_mask, file))
         print(f"All images have been resized to {output_size} and saved to {save_to}")
@@ -261,22 +285,22 @@ class Visualize:
         npy_data = np.load(npy_path)
         npy_img = Image.fromarray(npy_data)
 
-        
+        # 调整 npy 图像的尺寸以匹配 png 图像
         if png_img.size != npy_img.size:
             npy_img = npy_img.resize(png_img.size)
 
-        
+        # 将灰度数据转换为彩色掩码
         color_mask = self.create_colorful_mask(np.array(npy_img))
         color_mask = color_mask.convert("RGBA")
-        
+        # 设置掩码的透明度
         r, g, b, a = color_mask.split()
         a = a.point(lambda p: p * alpha)
         color_mask = Image.merge('RGBA', (r, g, b, a))
 
-        
+        # 将彩色掩码叠加到 png 图像上
         combined = Image.alpha_composite(png_img, color_mask)
         combined.save(pred_mask)
-        # print(f"It has saved to {pred_mask}")
+        # print(f"已保存结果到 {pred_mask}")
 
     def process_folders(self):
         npy_folder = self.npy_folder
@@ -288,10 +312,10 @@ class Visualize:
             os.makedirs(output_folder)
 
         if not os.path.exists(npy_folder):
-            print(f"Error:snpy directory {npy_folder} doesn't exist。")
+            print(f"错误:snpy 文件夹 {npy_folder} 不存在。")
             return
 
-        
+        # 获取 mask 文件夹下的所有小文件夹
         sub_npy_folders = [f for f in os.listdir(png_folder) if os.path.isdir(os.path.join(png_folder, f))]
         # breakpoint()
         for sub_npy_folder in tqdm(sub_npy_folders, desc="Visualizing"):
@@ -299,16 +323,16 @@ class Visualize:
             sub_npy_folder_path = os.path.join(npy_folder, sub_npy_folder)
             sub_png_folder_path = os.path.join(png_folder, sub_npy_folder)
             if not os.path.exists(sub_png_folder_path):
-                print(f"Error：related png directory {sub_png_folder_path} doesn't exist。")
+                print(f"错误：对应的 png 文件夹 {sub_png_folder_path} 不存在。")
                 continue
             sub_output_folder = os.path.join(output_folder, sub_npy_folder) ################################################################################
 
-            
+            # 为每个小文件夹创建对应的输出子文件夹
             if not os.path.exists(sub_output_folder):
                 os.makedirs(sub_output_folder)
 
             npy_files = [f for f in os.listdir(sub_npy_folder_path) if f.endswith('.npy')]
-            
+            # 内层进度条，显示小文件夹内文件的处理进度
             for npy_filename in tqdm(npy_files, desc=f"Processing {sub_npy_folder} ", leave=False):
                 npy_path = os.path.join(sub_npy_folder_path, npy_filename)
                 base_name = os.path.splitext(npy_filename)[0]
@@ -350,14 +374,46 @@ class Visualize:
         水囊使用的目的主要是制造安全合适的声通道，如需要推挤肠道，一般水囊张力较高水囊大，如果是对声通道进行调整，如调整焦距和膀胱形态等，水囊可大可小。
         """        
   
-class MriStratery:
-    def __init__(self, args):
-        self.args = args
+class Optimizer:
+    def __init__(self,args):
+        self.args=args
+        self.count=0
 
+    # def call_model(self, prompt):
+    #     url = "https://api.siliconflow.cn/v1/chat/completions"
+    #     payload = {
+    #         "model": "Qwen/Qwen3-14B",
+    #         "messages": [{"role": "user", "content": prompt}],
+    #         "stream": False,
+    #         "max_tokens": 1024,
+    #         "enable_thinking": True,
+    #         "thinking_budget": 4096,
+    #         "min_p": 0.05,
+    #         "stop": None,
+    #         "temperature": 0.7,
+    #         "top_p": 0.7,
+    #         "top_k": 50,
+    #         "frequency_penalty": 0.5,
+    #         "n": 1,
+    #         "response_format": {"type": "text"},
+    #     }
+    #     with open('config.json', 'r') as file:
+    #         config = json.load(file)
+
+    #     api_key = config['qwen3_key']        
+    #     headers = {
+    #         "Authorization": api_key,  # 请替换成你的真实 key
+    #         "Content-Type": "application/json"
+    #     }
+
+    #     response = requests.post(url, json=payload, headers=headers)
+    #     response.raise_for_status()
+    #     return response.json()["choices"][0]["message"]["content"]
+ 
     def call_model(self, prompt):
         url = "https://api.siliconflow.cn/v1/chat/completions"
         payload = {
-            "model": "Qwen/Qwen3-14B",
+            "model": "Qwen/Qwen3-14B",  # 确认模型名称无误
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
             "max_tokens": 1024,
@@ -372,20 +428,45 @@ class MriStratery:
             "n": 1,
             "response_format": {"type": "text"},
         }
+
         with open('config.json', 'r') as file:
             config = json.load(file)
 
-        api_key = config['qwen3_key']        
+        api_key = config['qwen3_key']
+        # breakpoint()
         headers = {
-            "Authorization": api_key,  # 请替换成你的真实 key
+            "Authorization": f"{api_key}",   # ✅记得加 Bearer
             "Content-Type": "application/json"
         }
 
+        # 记录开始时间
+        start_time = time.time()
+
         response = requests.post(url, json=payload, headers=headers)
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
 
-    def inference(self):
+        # 记录结束时间
+        end_time = time.time()
+        elapsed_time = end_time - start_time  # 调用耗时（秒）
+
+        # 解析返回
+        data = response.json()
+        content = data["choices"][0]["message"]["content"]
+
+        # 统计 token 使用情况（如果API返回了usage字段）
+        prompt_tokens = data.get("usage", {}).get("prompt_tokens", None)
+        completion_tokens = data.get("usage", {}).get("completion_tokens", None)
+        total_tokens = data.get("usage", {}).get("total_tokens", None)
+
+        # 打印或返回结果
+        print(f"Optimizer调用耗时: {elapsed_time:.2f} 秒")
+        print(f"Prompt Tokens: {prompt_tokens}")
+        print(f"Completion Tokens: {completion_tokens}")
+        print(f"Total Tokens: {total_tokens}")
+
+        return content
+
+    def inference(self,MRI_strategy):
         os.makedirs(self.args.mri_output, exist_ok=True)
 
         principles = """
@@ -422,41 +503,236 @@ class MriStratery:
             mri_file_path = os.path.join(patient_folder, 'mri.txt')
 
             try:
-                with open(mri_file_path, 'r') as f:
-                    input_content = f.read()
 
                 # === 第一次推理 ===
                 first_prompt = (
                     principles + "\n\n"
-                    + input_content
-                    + "\n请你根据以上所有原则的内容帮我写治疗方案，治疗方案内容应包含：\n"
-                    + "1.初步诊断：\n2.治疗时机：\n3.治疗目的及医患沟通：\n4.术前准备及注意事项：\n"
-                    + "5.治疗分析及术中注意事项：\n6.治疗后观察和处理：\n开启模型思考模式。"
-                )
+                    + MRI_strategy
+                    + "你是医学治疗方案审核助理。请严格按照上方“治疗计划制定的基本原则”逐条核验本病例描述是否满足可以按该原则继续制定HIFUA治疗方案的条件。\n\n"
+                        "判定规则（严格执行）：\n"
+                        "1) 病史相关（必检）：\n"
+                        "   - 若明确记载“3个月内人流史”，视为不符合（返回 FALSE）。\n"
+                        "   - 若记载有节育环（IUD）且未明确写明“已在术前3天取出”，视为不符合（返回 FALSE）。\n"
+                        "   - 若记载有活动性或近期盆腔炎/严重盆腔感染，视为不符合（返回 FALSE）。\n"
+                        "   - 若记载有严重听力或交流障碍，影响术中配合或沟通，视为不符合（返回 FALSE）。\n"
+                        "   - 若有下腹部手术史：必须有对肠粘连/瘢痕的评估；若明确瘢痕宽度≥15 mm，则视为不符合（返回 FALSE）。若存在手术史但无瘢痕/粘连评估信息，视为信息不足（返回 FALSE）。\n\n"
+                        "2) 影像与治疗范围（必检）：\n"
+                        "   - 必须提供可验证的影像测量或文字描述（肿瘤与上下左右边界距离、与内膜的距离、深面/浅面边界距离等）。\n"
+                        "   - 若影像给出的距离不满足原则中规定的安全距离（例如边界距离5-10 mm、与内膜距离需满足原则中所列数值、深/浅面边界距离10 mm等）则视为不符合（返回 FALSE）。\n"
+                        "   - 若影像参数缺失、单位不明确或无法确认是否满足上述距离要求，视为信息不足（返回 FALSE）。\n\n"
+                        "3) 肌瘤类型与大小（必检）：\n"
+                        "   - 若病例描述指明T2WI高信号且血供丰富或最大径>10 cm，应标注需要多次治疗；但这类情况本身不是绝对禁忌。只在病例与原则直接冲突时判为不符合。\n"
+                        "   - 若病例缺乏必要的肌瘤大小或影像信号信息，视为信息不足（返回 FALSE）。\n\n"
+                        "4) 治疗难度与其他（辅助判定）：\n"
+                        "   - 若病例说明肿瘤位于后位、夹杂肠道或其他增加手术难度的因素，应在评估中被识别；若这些因素存在且未提供应对措施或评估，视为不符合或信息不足（返回 FALSE）。\n"
+                        "   - 关于膀胱/水囊的使用：若病例需特殊声通道处理但未提供相关计划或评估，同样视为信息不足（返回 FALSE）。\n\n"
+                        "5) 总则：\n"
+                        "   - 只有在“无上述绝对或相对禁忌”且“提供了所有关键影像/病史评估并满足原则中可验证的安全距离/条件”的情况下，才认为符合（返回 TRUE）。\n"
+                        "   - 任何关键项目缺失、模糊不清、单位不明确或与原则冲突时，均判为不符合（返回 FALSE）。\n\n"
+                        "请严格执行上述判定并**仅输出**单词 TRUE 或 FALSE（全部大写），不要输出解释、理由、标点、额外空行或其它任何内容。开启模型思考模式。"
+                    )
+                
                 first_result = self.call_model(first_prompt)
+                first_result = first_result.strip().upper()
 
-                # === 第二次推理（优化） ===
-                second_prompt = (
-                    principles + "\n\n"
-                    + input_content
-                    + "\n以下是第一次生成的治疗方案：\n"
-                    + first_result
-                    + "\n请你在上述方案的基础上，进一步优化内容，使之更具临床可行性、语言更清晰严谨，必要时可做增补，结构保持一致。"
-                )
-                optimized_result = self.call_model(second_prompt)
+                # 仅保留首个可识别关键词，避免模型返回解释时误判
+                if "TRUE" in first_result and "FALSE" not in first_result:
+                    return  "TRUE"
+                elif "FALSE" in first_result and "TRUE" not in first_result:
+                    self.count += 1
+                    if self.count > 1:
+                        raise RuntimeError(f"模型输出不符合预期,已有{self.count }次不符合治疗原则的输出") 
+                    return  "FALSE"
+                else:
+                    raise RuntimeError(f"模型输出不符合预期")                  # 模型输出不符合预期
 
-                # === 保存结果 ===
-                output_dir = os.path.join(self.args.mri_output, patient_id)
-                os.makedirs(output_dir, exist_ok=True)
-
-                with open(os.path.join(output_dir, 'mri_raw.txt'), 'w') as f:
-                    f.write(first_result)
-
-                with open(os.path.join(output_dir, 'mri_optimized.txt'), 'w') as f:
-                    f.write(optimized_result)
+                
 
             except Exception as e:
                 raise RuntimeError(f"{mri_file_path} 处理失败，错误信息: {e}")                
+
+
+class MriStratery:
+    def __init__(self, args,optimizer):
+        self.args = args
+        self.optimizer=optimizer
+
+    # def call_model(self, prompt):
+    #     url = "https://api.siliconflow.cn/v1/chat/completions"
+    #     payload = {
+    #         "model": "Qwen/Qwen3-14B",
+    #         "messages": [{"role": "user", "content": prompt}],
+    #         "stream": False,
+    #         "max_tokens": 1024,
+    #         "enable_thinking": True,
+    #         "thinking_budget": 4096,
+    #         "min_p": 0.05,
+    #         "stop": None,
+    #         "temperature": 0.7,
+    #         "top_p": 0.7,
+    #         "top_k": 50,
+    #         "frequency_penalty": 0.5,
+    #         "n": 1,
+    #         "response_format": {"type": "text"},
+    #     }
+    #     with open('config.json', 'r') as file:
+    #         config = json.load(file)
+
+    #     api_key = config['qwen3_key']        
+    #     headers = {
+    #         "Authorization": api_key,  # 请替换成你的真实 key
+    #         "Content-Type": "application/json"
+    #     }
+
+    #     response = requests.post(url, json=payload, headers=headers)
+    #     response.raise_for_status()
+    #     return response.json()["choices"][0]["message"]["content"]
+
+
+    def call_model(self, prompt):
+        url = "https://api.siliconflow.cn/v1/chat/completions"
+        payload = {
+            "model": "Qwen/Qwen3-14B",  # 确认模型名称无误
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "max_tokens": 1024,
+            "enable_thinking": True,
+            "thinking_budget": 4096,
+            "min_p": 0.05,
+            "stop": None,
+            "temperature": 0.7,
+            "top_p": 0.7,
+            "top_k": 50,
+            "frequency_penalty": 0.5,
+            "n": 1,
+            "response_format": {"type": "text"},
+        }
+
+        with open('config.json', 'r') as file:
+            config = json.load(file)
+
+        api_key = config['qwen3_key']
+        # breakpoint()
+        headers = {
+            "Authorization": f"{api_key}",   # ✅记得加 Bearer
+            "Content-Type": "application/json"
+        }
+
+        # 记录开始时间
+        start_time = time.time()
+
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+
+        # 记录结束时间
+        end_time = time.time()
+        elapsed_time = end_time - start_time  # 调用耗时（秒）
+
+        # 解析返回
+        data = response.json()
+        content = data["choices"][0]["message"]["content"]
+
+        # 统计 token 使用情况（如果API返回了usage字段）
+        prompt_tokens = data.get("usage", {}).get("prompt_tokens", None)
+        completion_tokens = data.get("usage", {}).get("completion_tokens", None)
+        total_tokens = data.get("usage", {}).get("total_tokens", None)
+
+        # 打印或返回结果
+        print(f"调用耗时: {elapsed_time:.2f} 秒")
+        print(f"Prompt Tokens: {prompt_tokens}")
+        print(f"Completion Tokens: {completion_tokens}")
+        print(f"Total Tokens: {total_tokens}")
+
+        return content
+
+    def generate_strategy(self):
+        os.makedirs(self.args.mri_output, exist_ok=True)
+        for patient_id in tqdm(os.listdir(self.args.mri_input), desc="Generating treatment plans"):
+            self.optimizer.count=0
+            self.inference(patient_id)
+
+    def inference(self,patient_id):
+        # os.makedirs(self.args.mri_output, exist_ok=True)
+
+        principles = """
+        治疗计划制定的基本原则
+        一、病史相关
+        1.有3个月内人流史，不建议行HIFUA手术；
+        2.有节育环，需在HIFUA术前3天取出；
+        3.有盆腔炎，不建议行HIFUA手术；
+        4.有听力/交流障碍，不建议行HIFUA手术；
+        5.有下腹部手术史，需判断是否有严重肠粘连和瘢痕。当瘢痕宽度达到15mm及以上，不建议行HIFUA手术；
+        二、治疗范围
+        1.治疗区的边界与肌瘤的上下（头足）、左右边界之间的距离为5-10mm，与内膜间的距离≥15cm，与肌瘤深面边界和浅面边界（骶骨侧边界和腹壁侧边界）的距离为10mm；
+        2.超声消融首先治疗的层面推荐为病灶左右径的1/2，前后径的1/2、上下径靠脚侧的1/4区域。其次是对超声治疗敏感的区域（容易出现灰度变化的区域，如钙化区、坏死区、缺血区等）；
+        3.在团块状灰度出现前，依次逐层进行治疗。出现团块且灰度变化到达临近层面，可以间隔一个层面进行治疗；
+        4.首先根据病人的反应调节剂量与强度，其次根据治疗靶区灰度变化进行调节。当出现团块状灰度变化，则根据团块状灰度扩散进行照射。没有出现团块状变化则按照剂量计划照射；
+        三、肌瘤类型
+        1.最大径小于20mm的肌瘤，使用掏心辐照；
+        2.粘膜下肌瘤治疗时强调焦点到内膜的距离大于15mm；
+        3.浆膜下肌瘤可先治疗肌瘤中心，再向周围扩散；
+        4.T2WI高信号且血供丰富的肌瘤、最大径超过10cm的大肌瘤，建议多次治疗；
+        四、治疗难度
+        1.T2WI信号为等高信号的，治疗难度大，低信号治疗难度较小；
+        2.肿瘤血供丰富的，治疗难度大，血供不丰富的难度较小；
+        3.后位子宫，夹杂肠道，治疗难度大，前位子宫治疗难度相对小。
+        五、其他
+        1.什么时候使用大中小膀胱？
+        一般前位子宫、前壁肌瘤、肌瘤较大的情况下使用较小膀胱，后位子宫情况下使用较大膀胱，后壁肌瘤大小膀胱都有在使用，小肌瘤的话还需结合子宫及肌瘤位置综合考虑。
+        2.什么时候使用大中小水囊？
+        水囊使用的目的主要是制造安全合适的声通道，如需要推挤肠道，一般水囊张力较高水囊大，如果是对声通道进行调整，如调整焦距和膀胱形态等，水囊可大可小。
+        """        
+ 
+        # for patient_id in tqdm(os.listdir(self.args.mri_input), desc="Generating treatment plans"):
+        patient_folder = os.path.join(self.args.mri_input, patient_id)
+        mri_file_path = os.path.join(patient_folder, 'mri.txt')
+
+        try:
+            with open(mri_file_path, 'r') as f:
+                input_content = f.read()
+
+            # === 第一次推理 ===
+            first_prompt = (
+                principles + "\n\n"
+                + input_content
+                + "\n请你根据以上所有原则的内容帮我写治疗方案，治疗方案内容应包含：\n"
+                + "1.初步诊断：\n2.治疗时机：\n3.治疗目的及医患沟通：\n4.术前准备及注意事项：\n"
+                + "5.治疗分析及术中注意事项：\n6.治疗后观察和处理：\n开启模型思考模式。"
+            )
+            first_result = self.call_model(first_prompt)
+
+            # === 第二次推理（优化） ===
+            second_prompt = (
+                principles + "\n\n"
+                + input_content
+                + "\n以下是第一次生成的治疗方案：\n"
+                + first_result
+                + "\n请你在上述方案的基础上，进一步优化内容，使之更具临床可行性、语言更清晰严谨，必要时可做增补，结构保持一致。"
+            )
+            optimized_result = self.call_model(second_prompt)
+
+            if not self.optimizer.inference(optimized_result):
+                self.inference(patient_id)
+
+
+
+
+
+
+            # === 保存结果 ===
+            output_dir = os.path.join(self.args.mri_output, patient_id)
+            os.makedirs(output_dir, exist_ok=True)
+
+            with open(os.path.join(output_dir, 'mri_raw.txt'), 'w') as f:
+                f.write(first_result)
+
+            with open(os.path.join(output_dir, 'mri_optimized.txt'), 'w') as f:
+                f.write(optimized_result)
+
+        except Exception as e:
+            raise RuntimeError(f"{mri_file_path} 处理失败，错误信息: {e}")                
+
+
 
 class Planner:
     def __init__(self):
@@ -478,7 +754,9 @@ class Planner:
         self.seg=Segconfig(self.args)
         self.visual=Visualize(self.args.pred_mask,self.args.image_newsize_path, self.args.visual_path, None,alpha=0.6)
         self.dose=DosePredictor(self.args)
-        self.mri=MriStratery(self.args)
+        self.optimizer = Optimizer(self.args)
+        self.mri=MriStratery(self.args,self.optimizer)
+        
 
     def parse_args(self): 
         print("[DEBUG] Before adding arguments")
@@ -604,7 +882,8 @@ class Planner:
         self.config.nii_to_image()    
         self.config.resize_images()
 
-        # breakpoint()
+        # # breakpoint()
+        start_time = time.time()
         self.seg.customized_validation_sam()
 
         self.visual.process_folders()
@@ -614,7 +893,11 @@ class Planner:
 
         _,_,collected_info=self.dose.build_dataset_with_validation()
 
-        self.mri.inference()
+        end_time = time.time()
+        elapsed_time=end_time-start_time
+        print(f"调用耗时: {elapsed_time:.2f} 秒")
+
+        self.mri.generate_strategy()
         
         self.config.save(collected_info)
 
@@ -628,4 +911,4 @@ if __name__ == '__main__':
     # breakpoint()
     planner.inference()
 
-# python code/main.py  -niigz_path ./dataset  -prompt autonomy -seg_model ./seg_model/autonomy_v1.pth -dose_model ./dose_model/dose_model_BayesSearchCV.joblib  
+# python code/main.py  -niigz_path ./dataset  -prompt autonomy -seg_model ./seg_model/autonomy_v1.pth -dose_model ./dose_model/dose_model_BayesSearchCV.joblib
